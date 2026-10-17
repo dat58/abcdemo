@@ -1,0 +1,9 @@
+# The build context is the parent directory, so these paths are relative to it.
+**/target/
+abcurves-rs/origin/
+**/.git/
+**/.github/
+**/*.rs.bk
+**/mutants.out*/
+abcdemo/Dockerfile
+abcdemo/Dockerfile.dockerignore

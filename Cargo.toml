@@ -1,0 +1,33 @@
+[package]
+name = "abcdemo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+dioxus = { version = "=0.7.6", features = ["fullstack"] }
+serde = { version = "1", features = ["derive"] }
+
+# The crate this demo exists to show off. It loads ~1.5 MB of weights from
+# disk and is native-only, so it is compiled into the server and never into
+# the wasm bundle. Sibling checkout; swap for the git dep if you move this.
+#   abcurves = { git = "https://github.com/dat58/abcurves-rs.git", optional = true }
+abcurves = { path = "../abcurves-rs", optional = true }
+
+[features]
+default = []
+web = ["dioxus/web"]
+server = ["dioxus/server", "dep:abcurves"]
+
+[profile.release]
+opt-level = 3
+
+# Debug abcurves is slow enough to see; the renderer is ~18 us/report when
+# optimised. Keep the dependency fast even in a debug build of the demo.
+[profile.dev.package.abcurves]
+opt-level = 3
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", features = ["time"] }

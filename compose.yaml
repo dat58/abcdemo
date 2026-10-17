@@ -1,0 +1,31 @@
+# The build context is the parent directory, because abcdemo depends on
+# ../abcurves-rs by path. Run this from either directory:
+#
+#   docker compose -f abcdemo/compose.yaml up --build
+services:
+  abcdemo:
+    build:
+      context: ..
+      dockerfile: abcdemo/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      # Without IP the server binds 127.0.0.1 and the published port goes nowhere.
+      IP: "0.0.0.0"
+      PORT: "8080"
+      RUST_LOG: "info"
+    volumes:
+      # CSV captures in, exports out. A named volume is seeded from the image
+      # on first use, so sample_prefix.csv is there; a bind mount of a host
+      # directory would hide it instead.
+      - abcdemo-data:/app/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  abcdemo-data:
