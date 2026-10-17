@@ -10,7 +10,11 @@ use serde::{Deserialize, Serialize};
 pub const MAX_PREFIX_MS: usize = 1500;
 
 /// A hit radius that suits the distances the mock generates by default.
-pub const DEFAULT_RADIUS: f64 = 12.0;
+///
+/// Small on purpose. Training spans roughly 2 to 90 counts with 2 to 20
+/// deliberately oversampled, and the radius is what tells the model how
+/// precise it has to be — a tight one is the interesting case.
+pub const DEFAULT_RADIUS: f64 = 2.0;
 
 /// Which planner to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

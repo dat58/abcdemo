@@ -65,6 +65,15 @@ pub trait PrefixSource {
     fn label(&self) -> String;
 }
 
+/// Format a count: whole numbers plain, anything else at full precision.
+fn count(value: f32) -> String {
+    if value.fract() == 0.0 {
+        format!("{}", value as i64)
+    } else {
+        format!("{value:.6}")
+    }
+}
+
 /// A hand resting on a 1 kHz mouse: mostly nothing, with occasional single
 /// counts of sensor noise.
 ///
@@ -195,40 +204,43 @@ impl PrefixSource for MockPrefix {
         // The seam wants at least two dozen milliseconds of evidence.
         let cut = cut.clamp(24, MAX_PREFIX_MS);
 
+        // A mouse reports whole counts. The sensor has no sub-count output, so
+        // every 1 ms bin is an integer pair and the fractional part of the
+        // intended path has to go somewhere: it accumulates as debt and is
+        // paid out as a whole count a tick or two later. That is the same
+        // thing abcurves' own Renderer does on the way out, and it is what
+        // gives a real capture its texture — runs of [0,1] with the
+        // occasional [1,2] rather than a smooth ramp.
+        //
+        // Tremor perturbs the *position*, not the step. Adding it to each
+        // delta instead would integrate into a random walk — at 0.35 counts
+        // over 126 ticks that is a drift of several counts, which drags B
+        // backwards and costs enough edge progress for the seam to refuse the
+        // handoff. As a positional wobble it telescopes away instead, leaving
+        // the endpoint where the movement aimed it.
         let mut previous = [0.0f64; 2];
-        let mut reports = Vec::with_capacity(cut);
+        let mut debt = [0.0f64; 2];
+        let mut reports: Vec<Report> = Vec::with_capacity(cut);
         for tick in 1..=cut {
             let s = minimum_jerk(tick as f64 / ticks as f64);
-            let point = point_at(s);
-            let mut delta = [point[0] - previous[0], point[1] - previous[1]];
-            previous = point;
-            // Tremor rides on the path rather than accumulating, so it does
-            // not drag B somewhere else.
+            let mut point = point_at(s);
             if jitter > 0.0 {
-                delta[0] += rng.normal() * jitter;
-                delta[1] += rng.normal() * jitter;
+                point[0] += rng.normal() * jitter;
+                point[1] += rng.normal() * jitter;
             }
-            reports.push([delta[0] as f32, delta[1] as f32]);
+            let want = [point[0] - previous[0], point[1] - previous[1]];
+            previous = point;
+
+            let mut emit = [0.0f32; 2];
+            for axis in 0..2 {
+                debt[axis] += want[axis];
+                let whole = debt[axis].round();
+                debt[axis] -= whole;
+                emit[axis] = whole as f32;
+            }
+            reports.push(emit);
         }
 
-        // Land B exactly `stop_bc` counts short of C along the line, so the
-        // figure the UI shows is the figure the seam sees.
-        let intended = [
-            target_delta[0] - along[0] * stop_bc,
-            target_delta[1] - along[1] * stop_bc,
-        ];
-        let actual = reports.iter().fold([0.0f64; 2], |sum, report| {
-            [sum[0] + f64::from(report[0]), sum[1] + f64::from(report[1])]
-        });
-        let drift = [intended[0] - actual[0], intended[1] - actual[1]];
-        let spread = reports.len().min(8);
-        if spread > 0 {
-            let share = spread as f64;
-            for report in reports.iter_mut().rev().take(spread) {
-                report[0] += (drift[0] / share) as f32;
-                report[1] += (drift[1] / share) as f32;
-            }
-        }
         reports
     }
 
@@ -385,6 +397,7 @@ impl CsvPrefix {
 
     /// Render a source back out in the same format, so a mock run can be saved
     /// and reloaded, and so there is a template to record against.
+    ///
     pub fn render(source: &dyn PrefixSource) -> String {
         let target = source.target_delta();
         let mut out = String::from("# abcdemo prefix capture\n# C and the radius are deltas in native counts, X right / Y up.\nkind,x,y\n");
@@ -392,7 +405,13 @@ impl CsvPrefix {
         out.push_str(&format!("radius,{:.6},0\n", source.radius()));
         out.push_str("# one row per closed millisecond, including the still ones\n");
         for report in source.prefix() {
-            out.push_str(&format!("report,{:.6},{:.6}\n", report[0], report[1]));
+            // Whole counts are written as whole numbers: that is what a mouse
+            // reports, and a recording should look like what it recorded.
+            out.push_str(&format!(
+                "report,{},{}\n",
+                count(report[0]),
+                count(report[1])
+            ));
         }
         out
     }
